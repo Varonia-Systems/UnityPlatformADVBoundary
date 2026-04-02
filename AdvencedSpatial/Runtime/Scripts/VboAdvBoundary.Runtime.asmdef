@@ -1,0 +1,14 @@
+{
+    "name": "VboAdvBoundary.Runtime",
+    "rootNamespace": "",
+    "references": ["GUID:1f827136e1701bf459b78aaa3b913507"],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
