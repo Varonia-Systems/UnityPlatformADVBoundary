@@ -20,6 +20,10 @@ namespace VaroniaBackOffice
         [SerializeField] private Vector2       size    = new Vector2(280f, 100f);
         [SerializeField] private bool          show    = true;
 
+        /// <summary>Facteur d'échelle manuel (1 = 1080p).</summary>
+        [Header("UI Scale")]
+        public float scaleFactor = 1f;
+
         // ─── Colors ───────────────────────────────────────────────────────────────
 
         static readonly Color ColBg      = new Color(0.11f, 0.11f, 0.14f, 0.92f);
@@ -39,6 +43,7 @@ namespace VaroniaBackOffice
         // ─── Styles ───────────────────────────────────────────────────────────────
 
         private bool      _stylesBuilt;
+        private float     _lastScale = 1f;
         private GUIStyle  _labelStyle;
         private GUIStyle  _pillStyle;
         private GUIStyle  _statLabelStyle;
@@ -77,9 +82,11 @@ namespace VaroniaBackOffice
         private void OnGUI()
         {
             if (!show) return;
-            EnsureStyles();
 
-            Rect panel = GetPanelRect();
+            float scale = (Screen.height / 1080f) * scaleFactor;
+            EnsureStyles(scale);
+
+            Rect panel = GetPanelRect(scale);
 
             // ── Background ──
             GUI.DrawTexture(panel, _texBg);
@@ -90,16 +97,16 @@ namespace VaroniaBackOffice
                 : ColBad;
             _texAccent.SetPixel(0, 0, accent);
             _texAccent.Apply();
-            GUI.DrawTexture(new Rect(panel.x, panel.y, 3f, panel.height), _texAccent);
+            GUI.DrawTexture(new Rect(panel.x, panel.y, 3f * scale, panel.height), _texAccent);
 
-            const float HeaderH = 22f;
-            const float RowH    = 20f;
-            const float PadX    = 12f;
-            const float PadY    =  4f;
+            float HeaderH = 22f * scale;
+            float RowH    = 20f * scale;
+            float PadX    = 12f * scale;
+            float PadY    =  4f * scale;
 
             // ── Header ──
             GUI.Label(
-                new Rect(panel.x + PadX, panel.y + PadY, 120f, HeaderH),
+                new Rect(panel.x + PadX, panel.y + PadY, 120f * scale, HeaderH),
                 "ADV BOUNDARY", _labelStyle
             );
 
@@ -108,14 +115,14 @@ namespace VaroniaBackOffice
             _pillStyle.normal.textColor  = IsInsideBoundary ? ColGood : ColBad;
             _pillStyle.normal.background = IsInsideBoundary ? _texPillGood : _texPillBad;
             GUI.Label(
-                new Rect(panel.x + panel.width - 90f, panel.y + PadY + 1f, 86f, HeaderH - 4f),
+                new Rect(panel.x + panel.width - 90f * scale, panel.y + PadY + 1f * scale, 86f * scale, HeaderH - 4f * scale),
                 pillTxt, _pillStyle
             );
 
             // Divider 1
             float y = panel.y + HeaderH;
-            GUI.DrawTexture(new Rect(panel.x + 8f, y, panel.width - 16f, 1f), _texDivider);
-            y += 2f;
+            GUI.DrawTexture(new Rect(panel.x + 8f * scale, y, panel.width - 16f * scale, 1f * scale), _texDivider);
+            y += 2f * scale;
 
             // ── Rows ──
             y = DrawRow(panel, y, RowH, PadX, "DIST TO WALL",
@@ -147,10 +154,10 @@ namespace VaroniaBackOffice
 
         // ─── Helpers ──────────────────────────────────────────────────────────────
 
-        private Rect GetPanelRect()
+        private Rect GetPanelRect(float scale)
         {
-            float w = size.x, h = size.y;
-            float mx = margin.x, my = margin.y;
+            float w = size.x * scale, h = size.y * scale;
+            float mx = margin.x * scale, my = margin.y * scale;
             float x, y;
             switch (corner)
             {
@@ -166,21 +173,22 @@ namespace VaroniaBackOffice
             return new Rect(x, y, w, h);
         }
 
-        private void EnsureStyles()
+        private void EnsureStyles(float scale)
         {
-            if (_stylesBuilt) return;
+            if (_stylesBuilt && Mathf.Approximately(scale, _lastScale)) return;
             _stylesBuilt = true;
+            _lastScale   = scale;
 
-            _texBg      = MakeTex(ColBg);
-            _texDivider = MakeTex(ColDivider);
-            _texAccent  = MakeTex(ColGood);
-            _texPillGood = MakeTex(new Color(ColGood.r, ColGood.g, ColGood.b, 0.15f));
-            _texPillBad  = MakeTex(new Color(ColBad.r,  ColBad.g,  ColBad.b,  0.15f));
-            _texPillWarn = MakeTex(new Color(ColWarn.r, ColWarn.g, ColWarn.b, 0.15f));
+            if (_texBg == null)      _texBg      = MakeTex(ColBg);
+            if (_texDivider == null) _texDivider = MakeTex(ColDivider);
+            if (_texAccent == null)  _texAccent  = MakeTex(ColGood);
+            if (_texPillGood == null) _texPillGood = MakeTex(new Color(ColGood.r, ColGood.g, ColGood.b, 0.15f));
+            if (_texPillBad == null)  _texPillBad  = MakeTex(new Color(ColBad.r,  ColBad.g,  ColBad.b,  0.15f));
+            if (_texPillWarn == null) _texPillWarn = MakeTex(new Color(ColWarn.r, ColWarn.g, ColWarn.b, 0.15f));
 
             _labelStyle = new GUIStyle
             {
-                fontSize  = 9,
+                fontSize  = Mathf.RoundToInt(9 * scale),
                 fontStyle = FontStyle.Bold,
                 alignment = TextAnchor.MiddleLeft,
                 normal    = { textColor = ColMutedFg },
@@ -188,16 +196,16 @@ namespace VaroniaBackOffice
 
             _pillStyle = new GUIStyle
             {
-                fontSize  = 9,
+                fontSize  = Mathf.RoundToInt(9 * scale),
                 fontStyle = FontStyle.Bold,
                 alignment = TextAnchor.MiddleCenter,
                 normal    = { textColor = ColGood, background = _texPillGood },
-                padding   = new RectOffset(4, 4, 2, 2),
+                padding   = new RectOffset(Mathf.RoundToInt(4 * scale), Mathf.RoundToInt(4 * scale), Mathf.RoundToInt(2 * scale), Mathf.RoundToInt(2 * scale)),
             };
 
             _statLabelStyle = new GUIStyle
             {
-                fontSize  = 8,
+                fontSize  = Mathf.RoundToInt(8 * scale),
                 fontStyle = FontStyle.Bold,
                 alignment = TextAnchor.MiddleLeft,
                 normal    = { textColor = ColMutedFg },
@@ -205,7 +213,7 @@ namespace VaroniaBackOffice
 
             _statValueStyle = new GUIStyle
             {
-                fontSize  = 10,
+                fontSize  = Mathf.RoundToInt(10 * scale),
                 fontStyle = FontStyle.Bold,
                 alignment = TextAnchor.MiddleRight,
                 normal    = { textColor = ColValue },
