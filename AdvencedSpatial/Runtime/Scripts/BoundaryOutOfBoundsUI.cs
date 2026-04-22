@@ -194,6 +194,7 @@ namespace VaroniaBackOffice
 
             var go = new GameObject("BoundaryOutOfBoundsCanvas");
             go.hideFlags = HideFlags.DontSave;
+            DontDestroyOnLoad(go);
 
             _canvas = go.AddComponent<Canvas>();
             _canvas.renderMode = RenderMode.WorldSpace;
