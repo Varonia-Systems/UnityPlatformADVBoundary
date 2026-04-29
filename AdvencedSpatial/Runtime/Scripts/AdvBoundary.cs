@@ -118,6 +118,8 @@ namespace VaroniaBackOffice
             public bool                IsMain;
             public float               ProximityDistance;
             public bool                AlertLimit;
+            public bool                HideLineFar;
+            public float               CurrentFarFade; // 0 = hidden, 1 = visible (lerped)
         }
 
         private readonly List<BoundaryRenderable> _renderables = new List<BoundaryRenderable> ();
@@ -220,7 +222,7 @@ namespace VaroniaBackOffice
         {
             _movieMode = BackOfficeVaronia.Instance != null
                          && BackOfficeVaronia.Instance.config != null
-                         && BackOfficeVaronia.Instance.config.hideMode==2;
+                         && BackOfficeVaronia.Instance.config.HideMode==2;
 
             foreach (var renderable in _renderables)
             {
@@ -352,15 +354,16 @@ namespace VaroniaBackOffice
 
             var renderable = new BoundaryRenderable
             {
-                IsMain            = boundary.MainBoundary,
-                ProximityDistance = boundary.DisplayDistance > 0f ? boundary.DisplayDistance : proximityDistance,
-                AlertLimit        = boundary.AlertLimit
+                IsMain                         = boundary.MainBoundary,
+                ProximityDistance              = boundary.DisplayDistance > 0f ? boundary.DisplayDistance : proximityDistance,
+                AlertLimit                     = boundary.AlertLimit,
+                HideLineFar = boundary.HideLineFar
             };
 
             // ── World points ─────────────────────────────────────────────────────
             foreach (var p in boundary.Points)
             {
-                Vector3 localPt = new Vector3(p.x, groundOffset + 0.1f, p.z);
+                Vector3 localPt = new Vector3(p.x, groundOffset + 0.08f, p.z);
                 renderable.LocalPoints.Add(localPt);
                 Vector3 worldPt = transform.parent != null
                     ? transform.parent.TransformPoint(localPt)
@@ -535,6 +538,18 @@ namespace VaroniaBackOffice
                         new Vector3(seg.A.x, 0f, seg.A.z),
                         new Vector3(seg.B.x, 0f, seg.B.z));
                     if (d < minDist) minDist = d;
+                }
+
+                if (r.HideLineFar && r.GroundLine != null)
+                {
+                    float farTarget = (isOutside || minDist < r.ProximityDistance) ? 1f : 0f;
+                    r.CurrentFarFade = Mathf.Lerp(r.CurrentFarFade, farTarget,
+                                                   Time.deltaTime * proximityLerpSpeed);
+
+                    bool active = !_movieMode && r.CurrentFarFade > 0.01f;
+                    if (r.GroundLine.enabled != active) r.GroundLine.enabled = active;
+                    if (r.GroundMat != null)
+                        r.GroundMat.SetFloat(BaseAlphaId, groundBaseAlpha * r.CurrentFarFade);
                 }
 
                 // Proximité globale (pour ground shader) — distance doublée pour le sol
