@@ -726,6 +726,33 @@ namespace VaroniaBackOffice
             return inside;
         }
 
+        /// <summary>
+        /// Retourne le centre (centroïde) de la main boundary en coordonnées world.
+        /// Y = 0. Retourne Vector3.zero si aucune boundary n'est trouvée.
+        /// </summary>
+        public static Vector3 GetCenter()
+        {
+            var instance = FindObjectOfType<AdvBoundary>();
+            if (instance == null || instance._renderables.Count == 0)
+                return Vector3.zero;
+
+            BoundaryRenderable main = null;
+            foreach (var r in instance._renderables)
+            {
+                if (r.IsMain) { main = r; break; }
+            }
+            if (main == null) main = instance._renderables[0];
+
+            var pts = main.WorldPoints;
+            if (pts.Count == 0) return Vector3.zero;
+
+            Vector3 sum = Vector3.zero;
+            for (int i = 0; i < pts.Count; i++)
+                sum += new Vector3(pts[i].x, 0f, pts[i].z);
+
+            return sum / pts.Count;
+        }
+
         private bool IsOutsideAllBoundaries(Vector3 point2D)
         {
             if (_renderables.Count == 0) return false;

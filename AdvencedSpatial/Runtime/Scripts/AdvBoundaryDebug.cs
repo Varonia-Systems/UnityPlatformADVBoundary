@@ -87,6 +87,15 @@ namespace VaroniaBackOffice
 #endif
         }
 
+        // Caché sur tous les rôles spectateurs (Server_Spectator + Client_Spectator).
+        private static bool IsHiddenByDeviceMode()
+        {
+            var inst = BackOfficeVaronia.Instance;
+            if (inst == null || inst.config == null) return false;
+            var m = inst.config.DeviceMode;
+            return m == DeviceMode.Server_Spectator || m == DeviceMode.Client_Spectator;
+        }
+
 #if VBO_UITOOLKIT_OVERLAYS
         // ════════════════════════════════════════════════════════════════════════
         //  UI Toolkit
@@ -108,6 +117,12 @@ namespace VaroniaBackOffice
         private void Update()
         {
             if (_panel == null) return;
+
+            bool visible = show && Camera.main != null && !IsHiddenByDeviceMode();
+            var targetDisplay = visible ? DisplayStyle.Flex : DisplayStyle.None;
+            if (_panel.style.display != targetDisplay)
+                _panel.style.display = targetDisplay;
+            if (!visible) return;
 
             // Accent bar (gauche)
             Color accent = IsInsideBoundary
@@ -322,6 +337,8 @@ namespace VaroniaBackOffice
         private void OnGUI()
         {
             if (!show) return;
+            if (Camera.main == null) return;
+            if (IsHiddenByDeviceMode()) return;
             if (Event.current.type != EventType.Repaint) return;
 
             float scale = (Screen.height / 1080f) * scaleFactor;
