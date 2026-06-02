@@ -131,6 +131,7 @@ namespace VaroniaBackOffice
         public bool IsNolimit { get; private set; }
 
         private bool             _movieMode;
+        private int              _boundaryLayer;
         private AudioSource      _audioSource;
         private float            _currentSoundVolume;
         private bool             _cameraFound;
@@ -331,6 +332,9 @@ namespace VaroniaBackOffice
         {
             Clear();
 
+            _boundaryLayer = AdvBoundarySettings.Layer;
+            gameObject.layer = _boundaryLayer;
+
             var spatial = VaroniaSpatialLoader.Data as Spatial;
             if (spatial?.Boundaries == null || spatial.Boundaries.Count == 0)
             {
@@ -375,6 +379,7 @@ namespace VaroniaBackOffice
 
             // ── Ground contour (LineRenderer) ────────────────────────────────────
             renderable.GroundGO = new GameObject($"AdvBoundary_Ground_{index}");
+            renderable.GroundGO.layer = _boundaryLayer;
             renderable.GroundGO.transform.SetParent(transform, false);
             renderable.GroundGO.transform.localPosition = Vector3.zero;
             renderable.GroundGO.transform.localRotation = Quaternion.identity;
@@ -412,6 +417,7 @@ namespace VaroniaBackOffice
                 };
 
                 seg.GO = new GameObject($"AdvBoundary_Wall_{index}_{i}");
+                seg.GO.layer = _boundaryLayer;
                 seg.GO.transform.SetParent(transform, false);
                 seg.GO.transform.localPosition = Vector3.zero;
                 seg.GO.transform.localRotation = Quaternion.identity;
