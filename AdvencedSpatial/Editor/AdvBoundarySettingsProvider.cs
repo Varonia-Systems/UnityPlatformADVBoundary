@@ -44,8 +44,9 @@ namespace VaroniaBackOffice.EditorTools
                 label = "Advanced Boundary",
                 guiHandler = _ =>
                 {
-                    var so        = GetSerializedSettings();
-                    var layerProp = so.FindProperty("boundaryLayer");
+                    var so           = GetSerializedSettings();
+                    var layerProp    = so.FindProperty("boundaryLayer");
+                    var colliderProp = so.FindProperty("generateWallCollider");
 
                     EditorGUILayout.Space();
                     EditorGUILayout.LabelField("Instanciation", EditorStyles.boldLabel);
@@ -62,8 +63,50 @@ namespace VaroniaBackOffice.EditorTools
                         layerProp.intValue = newLayer;
                         so.ApplyModifiedPropertiesWithoutUndo();
                     }
+
+                    EditorGUILayout.Space();
+                    EditorGUILayout.LabelField("Collision", EditorStyles.boldLabel);
+                    EditorGUILayout.HelpBox(
+                        "Si activé, un MeshCollider est généré sur le rideau (mur) de chaque " +
+                        "segment de boundary au runtime, pour empêcher physiquement de traverser. " +
+                        "Le collider reste actif même quand le mur n'est pas visible.",
+                        MessageType.Info);
+
+                    EditorGUI.BeginChangeCheck();
+                    bool newGen = EditorGUILayout.Toggle(
+                        new GUIContent("Generate Wall Collider"), colliderProp.boolValue);
+                    if (EditorGUI.EndChangeCheck())
+                    {
+                        colliderProp.boolValue = newGen;
+                        so.ApplyModifiedPropertiesWithoutUndo();
+                    }
+
+                    using (new EditorGUI.DisabledScope(!colliderProp.boolValue))
+                    {
+                        var thickProp = so.FindProperty("wallColliderThickness");
+                        EditorGUI.BeginChangeCheck();
+                        float newThick = EditorGUILayout.FloatField(
+                            new GUIContent("Wall Collider Thickness (m)"), thickProp.floatValue);
+                        if (EditorGUI.EndChangeCheck())
+                        {
+                            thickProp.floatValue = Mathf.Max(0.001f, newThick);
+                            so.ApplyModifiedPropertiesWithoutUndo();
+                        }
+
+                        var triggerProp = so.FindProperty("wallColliderIsTrigger");
+                        EditorGUI.BeginChangeCheck();
+                        bool newTrigger = EditorGUILayout.Toggle(
+                            new GUIContent("Is Trigger",
+                                "Coché : trigger (détecte sans bloquer). Décoché : collider solide qui bloque."),
+                            triggerProp.boolValue);
+                        if (EditorGUI.EndChangeCheck())
+                        {
+                            triggerProp.boolValue = newTrigger;
+                            so.ApplyModifiedPropertiesWithoutUndo();
+                        }
+                    }
                 },
-                keywords = new HashSet<string>(new[] { "Varonia", "Boundary", "Advanced", "Layer" })
+                keywords = new HashSet<string>(new[] { "Varonia", "Boundary", "Advanced", "Layer", "Collider", "Collision", "Wall" })
             };
             return provider;
         }

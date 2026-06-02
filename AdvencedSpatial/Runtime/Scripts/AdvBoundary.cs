@@ -104,6 +104,14 @@ namespace VaroniaBackOffice
             public Vector3      A;
             public Vector3      B;
             public float        SegmentLength;
+
+            // Optional trigger collider on the curtain. Lives on its OWN
+            // always-active GameObject (ColliderGO) so it keeps reporting triggers
+            // even when the visual segment GO is toggled off for the proximity fade.
+            // A thin BoxCollider (oriented along the segment) is used so it can be
+            // a trigger (trigger MeshColliders must be convex → no flat quad).
+            public GameObject  ColliderGO;
+            public BoxCollider Collider;
         }
 
         private class BoundaryRenderable
@@ -283,12 +291,28 @@ namespace VaroniaBackOffice
                     Vector3 aLocal = renderable.LocalPoints[i];
                     Vector3 bLocal = renderable.LocalPoints[(i + 1) % renderable.LocalPoints.Count];
 
-                    seg.MF.mesh = BuildWallMesh(aLocal, bLocal, wallHeight);
+                    var rebuiltMesh = BuildWallMesh(aLocal, bLocal, wallHeight);
+                    seg.MF.mesh = rebuiltMesh;
+                    if (seg.Collider != null)
+                        ConfigureWallColliderBox(seg, aLocal, bLocal, AdvBoundarySettings.WallColliderThickness);
                     seg.SegmentLength = Vector3.Distance(
                         new Vector3(aLocal.x, 0f, aLocal.z),
                         new Vector3(bLocal.x, 0f, bLocal.z));
                 }
             }
+        }
+
+        // ─── Spectator gating ───────────────────────────────────────────────────────
+
+        /// <summary>True when the device is a spectator (server or client). Spectators
+        /// fly freely, so the boundary proximity/out-of-bounds sound is muted for them.
+        /// Read live so a runtime DeviceMode change is honoured.</summary>
+        private static bool IsSpectator()
+        {
+            var bo = BackOfficeVaronia.Instance;
+            if (bo == null || bo.config == null) return false;
+            var mode = bo.config.DeviceMode;
+            return mode == DeviceMode.Server_Spectator || mode == DeviceMode.Client_Spectator;
         }
 
         // ─── Audio Setup ──────────────────────────────────────────────────────────
@@ -402,6 +426,9 @@ namespace VaroniaBackOffice
                 lr.SetPosition(i, renderable.LocalPoints[i]);
 
             // ── Wall segments (mesh par segment) ─────────────────────────────────
+            bool  genCollider       = AdvBoundarySettings.GenerateWallCollider;
+            float colliderThickness = AdvBoundarySettings.WallColliderThickness;
+            bool  colliderIsTrigger = AdvBoundarySettings.WallColliderIsTrigger;
             for (int i = 0; i < renderable.LocalPoints.Count; i++)
             {
                 Vector3 a = renderable.LocalPoints[i];
@@ -428,15 +455,60 @@ namespace VaroniaBackOffice
                 seg.Renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                 seg.Renderer.receiveShadows    = false;
 
-                seg.MF.mesh = BuildWallMesh(a, b, wallHeight);
+                var wallMesh = BuildWallMesh(a, b, wallHeight);
+                seg.MF.mesh = wallMesh;
                 seg.Mat     = CreateWallMaterial(col);
                 seg.Renderer.material = seg.Mat;
                 seg.GO.SetActive(false);
+
+                // Optional trigger collider on the curtain (separate, always-active GO).
+                if (genCollider)
+                {
+                    seg.ColliderGO = new GameObject($"AdvBoundary_WallCollider_{index}_{i}");
+                    seg.ColliderGO.layer = _boundaryLayer;
+                    seg.ColliderGO.transform.SetParent(transform, false);
+                    seg.ColliderGO.transform.localScale = Vector3.one;
+                    seg.Collider = seg.ColliderGO.AddComponent<BoxCollider>();
+                    seg.Collider.isTrigger = colliderIsTrigger;
+                    ConfigureWallColliderBox(seg, a, b, colliderThickness);
+                }
 
                 renderable.WallSegments.Add(seg);
             }
 
             _renderables.Add(renderable);
+        }
+
+        // ─── Wall Collider ──────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Positions/sizes a segment's trigger BoxCollider as a thin wall from local
+        /// point a to b, rising by wallHeight. The box is oriented so its length runs
+        /// along the segment, its height is vertical, and its (thin) depth is the wall
+        /// thickness. a/b are in the parent transform's local space (same as the mesh).
+        /// </summary>
+        private void ConfigureWallColliderBox(WallSegment seg, Vector3 a, Vector3 b, float thickness)
+        {
+            if (seg == null || seg.ColliderGO == null || seg.Collider == null) return;
+
+            Vector3 a2 = new Vector3(a.x, 0f, a.z);
+            Vector3 b2 = new Vector3(b.x, 0f, b.z);
+            Vector3 d  = b2 - a2;
+            float   len = d.magnitude;
+
+            Vector3 mid = (a + b) * 0.5f;
+            mid.y = (a.y + b.y) * 0.5f + wallHeight * 0.5f;
+
+            seg.ColliderGO.transform.localPosition = mid;
+            seg.ColliderGO.transform.localRotation = (len > 1e-4f)
+                ? Quaternion.LookRotation(d / len, Vector3.up) // forward(z)=segment, up(y)=vertical
+                : Quaternion.identity;
+
+            seg.Collider.center = Vector3.zero;
+            seg.Collider.size   = new Vector3(
+                Mathf.Max(0.001f, thickness), // x = thickness (depth through the wall)
+                Mathf.Max(0.001f, wallHeight),// y = height
+                Mathf.Max(0.001f, len));      // z = length along the segment
         }
 
         // ─── Wall Mesh ────────────────────────────────────────────────────────────
@@ -657,7 +729,8 @@ namespace VaroniaBackOffice
                 IsNolimit = true;
 #endif
 
-            if (IsNolimit)
+            // Pas de son en mode spectateur (idem alerte UI), ni si AlertLimit=false partout.
+            if (IsNolimit || IsSpectator())
             {
                 if (_audioSource.isPlaying) _audioSource.Stop();
                 _currentSoundVolume = 0f;
@@ -828,8 +901,9 @@ namespace VaroniaBackOffice
 
                 foreach (var seg in r.WallSegments)
                 {
-                    if (seg.GO  != null) Destroy(seg.GO);
-                    if (seg.Mat != null) Destroy(seg.Mat);
+                    if (seg.GO         != null) Destroy(seg.GO);
+                    if (seg.ColliderGO != null) Destroy(seg.ColliderGO);
+                    if (seg.Mat        != null) Destroy(seg.Mat);
                 }
             }
             _renderables.Clear();

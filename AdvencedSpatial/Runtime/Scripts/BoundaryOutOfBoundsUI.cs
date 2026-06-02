@@ -112,7 +112,8 @@ namespace VaroniaBackOffice
             if (_boundary == null)
                 _boundary = FindObjectOfType<AdvBoundary>();
 
-            bool outside = _boundary != null && _boundary.IsOutside && !_boundary.IsNolimit;
+            // Pas d'alerte hors-limite en mode spectateur (Server/Client_Spectator).
+            bool outside = _boundary != null && _boundary.IsOutside && !_boundary.IsNolimit && !IsSpectator();
 
             // ── Gestion du timer de délai et du fade ──────────────────────────
             if (outside)
@@ -141,6 +142,19 @@ namespace VaroniaBackOffice
             // Pulsation de la barre d'accent (badge warn)
             float pulse = (Mathf.Sin(Time.time * 4f) + 1f) * 0.5f;
             _warnLabel.color = Color.Lerp(ColWarnBadge, Color.white, pulse * 0.4f);
+        }
+
+        // ─── Spectator gating ───────────────────────────────────────────────────────
+
+        /// <summary>True when the device is a spectator (server or client). Spectators
+        /// fly around freely, so the out-of-bounds warning must never show for them.
+        /// Read live each frame so a runtime DeviceMode change is honoured.</summary>
+        private static bool IsSpectator()
+        {
+            var bo = BackOfficeVaronia.Instance;
+            if (bo == null || bo.config == null) return false;
+            var mode = bo.config.DeviceMode;
+            return mode == DeviceMode.Server_Spectator || mode == DeviceMode.Client_Spectator;
         }
 
         // ─── Language ─────────────────────────────────────────────────────────────
