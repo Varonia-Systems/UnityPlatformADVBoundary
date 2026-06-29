@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1877f2d594be8a04c869a484a1377f20, type: 3}
   m_Name: AdvBoundarySettings
   m_EditorClassIdentifier: VboAdvBoundary.Runtime::VaroniaBackOffice.AdvBoundarySettings
-  boundaryLayer: 31
+  boundaryLayer: 6
   generateWallCollider: 0
   wallColliderThickness: 0.1
   wallColliderIsTrigger: 0
