@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace VaroniaBackOffice
@@ -19,8 +20,8 @@ namespace VaroniaBackOffice
         public int BoundaryLayer => boundaryLayer;
 
         [SerializeField]
-        [Tooltip("Génère un MeshCollider physique sur le rideau (mur) de chaque segment " +
-                 "de boundary au runtime, pour bloquer physiquement le passage. " +
+        [Tooltip("Génère un BoxCollider fin sur le rideau (mur) de chaque segment " +
+                 "de boundary au runtime, pour détecter ou bloquer le passage. " +
                  "Le collider reste actif même quand le mur n'est pas visible.")]
         private bool generateWallCollider = false;
 
@@ -41,6 +42,49 @@ namespace VaroniaBackOffice
 
         /// <summary>True si le collider de mur doit être un trigger.</summary>
         public bool WallColliderIsTriggerValue => wallColliderIsTrigger;
+
+        [Header("Obstacle Prefabs")]
+        [SerializeField]
+        [Tooltip("Prefab instancié pour un obstacle de taille Small.")]
+        private GameObject obstaclePrefabSmall;
+
+        [SerializeField]
+        [Tooltip("Prefab instancié pour un obstacle de taille Medium.")]
+        private GameObject obstaclePrefabMedium;
+
+        [SerializeField]
+        [Tooltip("Prefab instancié pour un obstacle de taille Large.")]
+        private GameObject obstaclePrefabLarge;
+
+        /// <summary>
+        /// Override des prefabs d'obstacles pour une scène donnée (par nom).
+        /// Ex. : scène futuriste → obstacles futuristes ; grotte → cailloux.
+        /// Un slot laissé vide retombe sur le prefab par défaut de cette taille.
+        /// </summary>
+        [System.Serializable]
+        public class SceneObstacleOverride
+        {
+            [Tooltip("Nom de la scène (sans extension) sur laquelle cet override s'applique.")]
+            public string sceneName;
+            public GameObject small;
+            public GameObject medium;
+            public GameObject large;
+
+            public GameObject Get(ObstacleSize size)
+            {
+                switch (size)
+                {
+                    case ObstacleSize.Small:  return small;
+                    case ObstacleSize.Medium: return medium;
+                    case ObstacleSize.Large:  return large;
+                    default:                  return null;
+                }
+            }
+        }
+
+        [SerializeField]
+        [Tooltip("Overrides de prefabs d'obstacles par scène.")]
+        private List<SceneObstacleOverride> sceneOverrides = new List<SceneObstacleOverride>();
 
         private static AdvBoundarySettings _instance;
 
@@ -67,5 +111,46 @@ namespace VaroniaBackOffice
 
         /// <summary>True si le collider de mur est un trigger (true par défaut si aucun asset).</summary>
         public static bool WallColliderIsTrigger => Instance == null || Instance.wallColliderIsTrigger;
+
+        private GameObject DefaultPrefab(ObstacleSize size)
+        {
+            switch (size)
+            {
+                case ObstacleSize.Small:  return obstaclePrefabSmall;
+                case ObstacleSize.Medium: return obstaclePrefabMedium;
+                case ObstacleSize.Large:  return obstaclePrefabLarge;
+                default:                  return null;
+            }
+        }
+
+        /// <summary>Prefab par défaut (hors override de scène) pour la taille donnée.</summary>
+        public static GameObject GetObstaclePrefab(ObstacleSize size)
+        {
+            var inst = Instance;
+            return inst != null ? inst.DefaultPrefab(size) : null;
+        }
+
+        /// <summary>
+        /// Prefab d'obstacle pour la taille donnée, en tenant compte d'un éventuel override de scène.
+        /// Si la scène a un override et que le slot de cette taille est rempli, il l'emporte ;
+        /// sinon on retombe sur le prefab par défaut.
+        /// </summary>
+        public static GameObject GetObstaclePrefab(ObstacleSize size, string sceneName)
+        {
+            var inst = Instance;
+            if (inst == null) return null;
+
+            if (!string.IsNullOrEmpty(sceneName) && inst.sceneOverrides != null)
+            {
+                foreach (var ov in inst.sceneOverrides)
+                {
+                    if (ov == null || ov.sceneName != sceneName) continue;
+                    var p = ov.Get(size);
+                    if (p != null) return p;   // slot rempli → override
+                    break;                     // scène trouvée mais slot vide → défaut
+                }
+            }
+            return inst.DefaultPrefab(size);
+        }
     }
 }

@@ -31,6 +31,9 @@ namespace VaroniaBackOffice
         [SerializeField] private float proximityLerpSpeed = 6.0f;
         [Tooltip("Rayon du fade horizontal en UV (0.1 = très localisé, 0.5 = demi-segment).")]
         [SerializeField] private float wallFadeRadius = 0.25f;
+        [Tooltip("Une fois le joueur sorti de la boundary, le grillage (murs) reste masqué en permanence, " +
+                 "pour ne pas laisser croire que la zone extérieure est interdite.")]
+        [SerializeField] private bool hideWallsOnceExited = true;
 
         [Header("Wall Shader Params")]
         [SerializeField] private float wallPulseSpeed     = 1.5f;
@@ -73,7 +76,8 @@ namespace VaroniaBackOffice
         [Header("Proximity Sound")]
         [Tooltip("Clip audio joué à l'approche. Laisser vide pour générer un bip procédural.")]
         [SerializeField] private AudioClip boundaryAlertClip;
-        [HideInInspector] [SerializeField] private float soundStartDistance = 2.0f;
+        [Tooltip("Distance à laquelle le son commence à monter (début du fondu). Doit être > 'Full Intensity Distance'.")]
+        [SerializeField] private float soundStartDistance = 2.0f;
         [Tooltip("Pitch de base du son (loin de la boundary).")]
         [SerializeField] private float soundBasePitch = 0.8f;
         [Tooltip("Pitch maximum quand collé au mur ou en dehors.")]
@@ -132,6 +136,9 @@ namespace VaroniaBackOffice
 
         private readonly List<BoundaryRenderable> _renderables = new List<BoundaryRenderable> ();
 
+        // Instances de prefabs d'obstacles spawnés depuis le JSON (détruites au Clear).
+        private readonly List<GameObject> _obstacleInstances = new List<GameObject>();
+
         /// <summary>True si le joueur est en dehors de la boundary principale.</summary>
         public bool IsOutside { get; private set; }
 
@@ -142,8 +149,18 @@ namespace VaroniaBackOffice
         private int              _boundaryLayer;
         private AudioSource      _audioSource;
         private float            _currentSoundVolume;
+        private float            _currentSoundPitch;
         private bool             _cameraFound;
         private AdvBoundaryDebug _debug;
+
+        // Latch : passe à true dès que le joueur est sorti au moins une fois de la boundary.
+        // Sert à masquer définitivement le grillage (voir hideWallsOnceExited).
+        private bool             _hasExited;
+
+        // Instance cachée : évite un FindObjectOfType par frame dans les accesseurs statiques.
+        private static AdvBoundary _instance;
+        private static AdvBoundary Instance =>
+            _instance != null ? _instance : (_instance = FindObjectOfType<AdvBoundary>());
 
         private static readonly int ProximityFadeId = Shader.PropertyToID("_ProximityFade");
         private static readonly int ColorId         = Shader.PropertyToID("_Color");
@@ -170,7 +187,7 @@ namespace VaroniaBackOffice
 
         private void Awake()
         {
-            
+            _instance = this;
             SetupAudioSource();
             _debug = GetComponent<AdvBoundaryDebug>();
         }
@@ -212,6 +229,7 @@ namespace VaroniaBackOffice
             VaroniaSpatialLoader.OnLoaded -= OnSpatialLoaded;
             BackOfficeVaronia.OnConfigLoaded -= OnConfigLoaded;
             BackOfficeVaronia.OnMovieChanged -= ApplyMovieMode;
+            if (_instance == this) _instance = null;
             Clear();
         }
 
@@ -291,8 +309,11 @@ namespace VaroniaBackOffice
                     Vector3 aLocal = renderable.LocalPoints[i];
                     Vector3 bLocal = renderable.LocalPoints[(i + 1) % renderable.LocalPoints.Count];
 
-                    var rebuiltMesh = BuildWallMesh(aLocal, bLocal, wallHeight);
-                    seg.MF.mesh = rebuiltMesh;
+                    // On met à jour les vertices du mesh EXISTANT (pas de new Mesh par frame → pas de fuite).
+                    var mesh = seg.MF.sharedMesh;
+                    if (mesh == null) { mesh = BuildWallMesh(aLocal, bLocal, wallHeight); seg.MF.sharedMesh = mesh; }
+                    else SetWallMeshVertices(mesh, aLocal, bLocal, wallHeight);
+
                     if (seg.Collider != null)
                         ConfigureWallColliderBox(seg, aLocal, bLocal, AdvBoundarySettings.WallColliderThickness);
                     seg.SegmentLength = Vector3.Distance(
@@ -326,6 +347,7 @@ namespace VaroniaBackOffice
             _audioSource.pitch        = soundBasePitch;
             _audioSource.playOnAwake  = false;
             _audioSource.priority     = 0;
+            _currentSoundPitch        = soundBasePitch;
 
             _audioSource.clip = boundaryAlertClip != null
                 ? boundaryAlertClip
@@ -355,6 +377,7 @@ namespace VaroniaBackOffice
         public void Build()
         {
             Clear();
+            _hasExited = false;
 
             _boundaryLayer = AdvBoundarySettings.Layer;
             gameObject.layer = _boundaryLayer;
@@ -367,9 +390,12 @@ namespace VaroniaBackOffice
             }
 
             for (int i = 0; i < spatial.Boundaries.Count; i++)
+            {
                 BuildBoundary(spatial.Boundaries[i], i);
+                BuildObstacles(spatial.Boundaries[i], i);
+            }
 
-            Debug.Log($"[AdvBoundary] {_renderables.Count} boundary(ies) construite(s).");
+            Debug.Log($"[AdvBoundary] {_renderables.Count} boundary(ies), {_obstacleInstances.Count} obstacle(s) construits.");
             ApplyMovieMode();
         }
 
@@ -456,7 +482,7 @@ namespace VaroniaBackOffice
                 seg.Renderer.receiveShadows    = false;
 
                 var wallMesh = BuildWallMesh(a, b, wallHeight);
-                seg.MF.mesh = wallMesh;
+                seg.MF.sharedMesh = wallMesh;
                 seg.Mat     = CreateWallMaterial(col);
                 seg.Renderer.material = seg.Mat;
                 seg.GO.SetActive(false);
@@ -477,6 +503,51 @@ namespace VaroniaBackOffice
             }
 
             _renderables.Add(renderable);
+        }
+
+        // ─── Obstacles ──────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Instancie le prefab (Small/Medium/Large, configuré dans Project Settings) pour chaque
+        /// obstacle du JSON de cette boundary, et applique ses options au spawn :
+        /// Position / Rotation / Scale sur le transform (repère local identique aux points de boundary),
+        /// puis transmission des données complètes (dont SpecialId) via IAdvObstacle si présent.
+        /// </summary>
+        private void BuildObstacles(Boundary_ boundary, int index)
+        {
+            if (boundary?.Obstacles == null) return;
+
+            // Scène active → sélectionne l'éventuel override de prefabs propre à cette map.
+            string sceneName = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+
+            for (int oi = 0; oi < boundary.Obstacles.Count; oi++)
+            {
+                var o = boundary.Obstacles[oi];
+                if (o == null) continue;
+
+                // Aucun prefab configuré (ni override de scène, ni défaut) pour cette taille → on n'instancie rien.
+                var prefab = AdvBoundarySettings.GetObstaclePrefab(o.Size, sceneName);
+                if (prefab == null) continue;
+
+                var go = Instantiate(prefab, transform, false);
+                go.name = $"AdvObstacle_{index}_{oi}_{o.Size}";
+
+                // Repère local identique aux points de boundary (local à 'transform').
+                Vector3 pos = o.Position != null ? o.Position.asVec3() : Vector3.zero;
+                Vector3 rot = o.Rotation != null ? o.Rotation.asVec3() : Vector3.zero;
+                go.transform.localPosition = pos;
+                go.transform.localRotation = Quaternion.Euler(rot);
+                go.transform.localScale    = prefab.transform.localScale * Mathf.Max(0.0001f, o.Scale);
+
+                // Hook optionnel : le prefab peut consommer les données complètes (SpecialId, etc.).
+                foreach (var recv in go.GetComponentsInChildren<IAdvObstacle>(true))
+                {
+                    try { recv.OnObstacleSpawn(o); }
+                    catch (System.Exception e) { Debug.LogException(e); }
+                }
+
+                _obstacleInstances.Add(go);
+            }
         }
 
         // ─── Wall Collider ──────────────────────────────────────────────────────────
@@ -520,14 +591,7 @@ namespace VaroniaBackOffice
             // UV.y = 0 en bas, 1 en haut
             var mesh = new Mesh { name = "WallSegment" };
 
-            Vector3 bottom = Vector3.zero; // Y déjà dans a/b
-            mesh.vertices = new Vector3[]
-            {
-                new Vector3(a.x, a.y,          a.z), // 0 bas-gauche
-                new Vector3(a.x, a.y + height,  a.z), // 1 haut-gauche
-                new Vector3(b.x, b.y + height,  b.z), // 2 haut-droite
-                new Vector3(b.x, b.y,          b.z), // 3 bas-droite
-            };
+            SetWallMeshVertices(mesh, a, b, height);
 
             mesh.uv = new Vector2[]
             {
@@ -537,7 +601,7 @@ namespace VaroniaBackOffice
                 new Vector2(1f, 0f),
             };
 
-            // Front + back (double-sided)
+            // Front + back (double-sided) — inchangés lors des updates de vertices.
             mesh.triangles = new int[]
             {
                 0, 1, 2,  0, 2, 3,   // front
@@ -549,12 +613,28 @@ namespace VaroniaBackOffice
             return mesh;
         }
 
+        // Met à jour seulement les 4 positions du quad (UV/triangles restent constants).
+        // Utilisé chaque frame quand la boundary bouge → évite d'allouer un nouveau Mesh.
+        private static void SetWallMeshVertices(Mesh mesh, Vector3 a, Vector3 b, float height)
+        {
+            mesh.vertices = new Vector3[]
+            {
+                new Vector3(a.x, a.y,          a.z), // 0 bas-gauche
+                new Vector3(a.x, a.y + height, a.z), // 1 haut-gauche
+                new Vector3(b.x, b.y + height, b.z), // 2 haut-droite
+                new Vector3(b.x, b.y,          b.z), // 3 bas-droite
+            };
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+        }
+
         // ─── Material Factories ───────────────────────────────────────────────────
 
         private Material CreateWallMaterial(Color col)
         {
-            
-            var mat = new Material(wallShader);
+            var shader = wallShader != null ? wallShader : Shader.Find("VaroniaBackOffice/AdvBoundaryWall");
+            if (shader == null) { Debug.LogError("[AdvBoundary] Shader mur introuvable (VaroniaBackOffice/AdvBoundaryWall)."); return null; }
+            var mat = new Material(shader);
             mat.SetColor(ColorId,         col);
             mat.SetFloat(PulseSpeedId,    wallPulseSpeed);
             mat.SetFloat(PulseIntId,      wallPulseIntensity);
@@ -572,8 +652,9 @@ namespace VaroniaBackOffice
 
         private Material CreateGroundMaterial(Color col)
         {
-      
-            var mat = new Material(groundShader);
+            var shader = groundShader != null ? groundShader : Shader.Find("VaroniaBackOffice/AdvBoundaryGround");
+            if (shader == null) { Debug.LogError("[AdvBoundary] Shader sol introuvable (VaroniaBackOffice/AdvBoundaryGround)."); return null; }
+            var mat = new Material(shader);
             mat.SetColor(ColorId,         col);
             mat.SetFloat(PulseSpeedId,    groundPulseSpeed);
             mat.SetFloat(PulseIntId,      groundPulseIntensity);
@@ -598,6 +679,11 @@ namespace VaroniaBackOffice
             if (ForceDisableBoundaryWarning)
                 isOutside = false;
 #endif
+
+            // Dès qu'on est sorti une fois, on masque définitivement le grillage (si l'option est active),
+            // pour ne pas laisser penser que l'extérieur est interdit une fois qu'on y est.
+            if (isOutside) _hasExited = true;
+            bool hideWalls = hideWallsOnceExited && _hasExited;
 
             // ── Debug overlay ─────────────────────────────────────────────────────
             float debugMinDist = float.MaxValue;
@@ -661,7 +747,7 @@ namespace VaroniaBackOffice
                     Vector3 b2D = new Vector3(seg.B.x, 0f, seg.B.z);
 
                     float segDist = DistancePointToSegment2D(camPos2D, a2D, b2D);
-                    bool  visible = isOutside || segDist < r.ProximityDistance;
+                    bool  visible = !hideWalls && (isOutside || segDist < r.ProximityDistance);
                     debugTotal++;
                     if (visible) debugActive++;
                     if (segDist < debugMinDist) debugMinDist = segDist;
@@ -737,38 +823,48 @@ namespace VaroniaBackOffice
                 return;
             }
 
+            // Fenêtre de fondu : le son monte de 'soundStartDistance' (extérieur) jusqu'à
+            // 'fullIntensityDistance' (collé au mur). On garantit start > full pour que la rampe soit atteignable.
+            float startDist = Mathf.Max(soundStartDistance, fullIntensityDistance + 0.01f);
+
             float targetVolume;
             float targetPitch;
 
             if (isOutside)
             {
+                // Hors zone : intensité maximale.
                 targetVolume = 1f;
                 targetPitch  = soundMaxPitch;
             }
             else if (globalMinDist <= fullIntensityDistance)
             {
-                targetVolume = 0.4f;
+                // Collé au mur (mais encore dedans) : quasi plein.
+                targetVolume = 0.8f;
                 targetPitch  = soundMaxPitch;
             }
-            else if (globalMinDist < proximityDistance / 10f)
+            else if (globalMinDist < startDist)
             {
+                // Rampe progressive volume + pitch entre startDist et fullIntensityDistance.
                 float t = 1f - Mathf.Clamp01(
                     (globalMinDist - fullIntensityDistance) /
-                    (proximityDistance / 10f - fullIntensityDistance));
-                targetVolume = t * 0.4f;
+                    (startDist - fullIntensityDistance));
+                targetVolume = t * 0.8f;
                 targetPitch  = Mathf.Lerp(soundBasePitch, soundMaxPitch, t);
             }
             else
             {
+                // Loin de la boundary : silence.
                 targetVolume = 0f;
                 targetPitch  = soundBasePitch;
             }
 
             _currentSoundVolume = Mathf.Lerp(_currentSoundVolume, targetVolume,
                                               Time.deltaTime * soundLerpSpeed);
+            _currentSoundPitch  = Mathf.Lerp(_currentSoundPitch, targetPitch,
+                                              Time.deltaTime * soundLerpSpeed);
 
             _audioSource.volume = _currentSoundVolume;
-            _audioSource.pitch  = 1f;
+            _audioSource.pitch  = _currentSoundPitch;
 
             if (targetVolume > 0f && !_audioSource.isPlaying)
                 _audioSource.Play();
@@ -786,7 +882,7 @@ namespace VaroniaBackOffice
         {
             distanceToWall = -1f;
 
-            var instance = FindObjectOfType<AdvBoundary>();
+            var instance = Instance;
             if (instance == null || instance._renderables.Count == 0)
                 return false;
 
@@ -811,7 +907,7 @@ namespace VaroniaBackOffice
         /// </summary>
         public static Vector3 GetCenter()
         {
-            var instance = FindObjectOfType<AdvBoundary>();
+            var instance = Instance;
             if (instance == null || instance._renderables.Count == 0)
                 return Vector3.zero;
 
@@ -830,6 +926,61 @@ namespace VaroniaBackOffice
                 sum += new Vector3(pts[i].x, 0f, pts[i].z);
 
             return sum / pts.Count;
+        }
+
+        /// <summary>
+        /// Point le plus proche sur la main boundary (là où le joueur devrait re-rentrer) et
+        /// direction pointant vers l'intérieur. Retourne false si aucune boundary exploitable.
+        /// </summary>
+        public static bool TryGetReturnTarget(Vector3 worldPos, out Vector3 closestPoint, out Vector3 inwardDir)
+        {
+            closestPoint = worldPos;
+            inwardDir    = Vector3.forward;
+
+            var instance = Instance;
+            if (instance == null || instance._renderables.Count == 0) return false;
+
+            BoundaryRenderable main = null;
+            foreach (var r in instance._renderables) if (r.IsMain) { main = r; break; }
+            if (main == null) main = instance._renderables[0];
+
+            var pts = main.WorldPoints;
+            if (pts == null || pts.Count < 2) return false;
+
+            Vector3 p2D = new Vector3(worldPos.x, 0f, worldPos.z);
+            int count   = pts.Count;
+            float best  = float.MaxValue;
+            Vector3 bestPt   = p2D;
+            Vector3 centroid = Vector3.zero;
+
+            for (int i = 0; i < count; i++)
+            {
+                Vector3 a = pts[i];
+                Vector3 b = pts[(i + 1) % count];
+                centroid += new Vector3(a.x, 0f, a.z);
+
+                Vector3 cp = ClosestPointOnSegment(p2D,
+                    new Vector3(a.x, 0f, a.z), new Vector3(b.x, 0f, b.z));
+                float d = Vector3.Distance(p2D, cp);
+                if (d < best)
+                {
+                    best   = d;
+                    bestPt = new Vector3(cp.x, (a.y + b.y) * 0.5f, cp.z);
+                }
+            }
+            centroid /= count;
+
+            closestPoint = bestPt;
+            Vector3 dir  = new Vector3(centroid.x - bestPt.x, 0f, centroid.z - bestPt.z);
+            inwardDir    = dir.sqrMagnitude < 1e-4f ? Vector3.forward : dir.normalized;
+            return true;
+        }
+
+        private static Vector3 ClosestPointOnSegment(Vector3 p, Vector3 a, Vector3 b)
+        {
+            Vector3 ab = b - a;
+            float   t  = Mathf.Clamp01(Vector3.Dot(p - a, ab) / Mathf.Max(ab.sqrMagnitude, 0.0001f));
+            return a + t * ab;
         }
 
         private bool IsOutsideAllBoundaries(Vector3 point2D)
@@ -901,12 +1052,18 @@ namespace VaroniaBackOffice
 
                 foreach (var seg in r.WallSegments)
                 {
+                    // Mesh créé au runtime (new Mesh) → non détruit avec le GO, à libérer explicitement.
+                    if (seg.MF != null && seg.MF.sharedMesh != null) Destroy(seg.MF.sharedMesh);
                     if (seg.GO         != null) Destroy(seg.GO);
                     if (seg.ColliderGO != null) Destroy(seg.ColliderGO);
                     if (seg.Mat        != null) Destroy(seg.Mat);
                 }
             }
             _renderables.Clear();
+
+            foreach (var go in _obstacleInstances)
+                if (go != null) Destroy(go);
+            _obstacleInstances.Clear();
         }
     }
 }
