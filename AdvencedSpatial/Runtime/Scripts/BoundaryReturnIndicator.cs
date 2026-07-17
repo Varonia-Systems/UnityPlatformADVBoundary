@@ -26,8 +26,6 @@ namespace VaroniaBackOffice
         [Tooltip("Amplitude du va-et-vient vertical de la flèche (mètres).")]
         [SerializeField] private float bobAmplitude = 0.12f;
         [SerializeField] private float bobSpeed     = 2.5f;
-        [Tooltip("Vitesse de suivi du point de rentrée (lerp). 0 = instantané.")]
-        [SerializeField] private float followSpeed  = 10f;
         [SerializeField] private float fadeSpeed    = 4f;
 
         // ─── Runtime ─────────────────────────────────────────────────────────────
@@ -40,8 +38,10 @@ namespace VaroniaBackOffice
         private Material    _ringMat, _arrowMat;
         private MeshRenderer _arrowRenderer;
 
-        private float _alpha;           // 0 = caché, 1 = plein
-        private bool  _built;
+        private float   _alpha;         // 0 = caché, 1 = plein
+        private bool    _built;
+        private bool    _hasExitPoint;  // un point de sortie a-t-il été figé ?
+        private Vector3 _exitPoint;     // position (monde) où le joueur est sorti
 
         private void Start()
         {
@@ -68,25 +68,27 @@ namespace VaroniaBackOffice
 
             bool outside = _boundary.IsOutside && !_boundary.IsNolimit && !IsSpectator();
 
-            // Cible = point de rentrée le plus proche de la caméra.
-            bool hasTarget = false;
-            Vector3 target = Vector3.zero;
+            // On capture le point de sortie UNE seule fois (là où le joueur a franchi le bord), puis on le
+            // FIGE tant qu'il est dehors → l'anneau conseille de rentrer par où il est sorti, sans suivre.
+            // Au retour à l'intérieur, on ré-arme pour recapturer à la prochaine sortie.
             if (outside)
-                hasTarget = AdvBoundary.TryGetReturnTarget(_cam.transform.position, out target, out _);
+            {
+                if (!_hasExitPoint)
+                    _hasExitPoint = AdvBoundary.TryGetReturnTarget(_cam.transform.position, out _exitPoint, out _);
+            }
+            else
+            {
+                _hasExitPoint = false;
+            }
 
             // Fondu.
-            float wanted = (outside && hasTarget) ? 1f : 0f;
+            float wanted = (outside && _hasExitPoint) ? 1f : 0f;
             _alpha = Mathf.MoveTowards(_alpha, wanted, fadeSpeed * Time.deltaTime);
             SetAlpha(_alpha);
             if (_alpha <= 0.001f) return;
 
-            // Placement de l'anneau sur le point de rentrée.
-            if (hasTarget)
-            {
-                _root.position = followSpeed > 0f
-                    ? Vector3.Lerp(_root.position, target, followSpeed * Time.deltaTime)
-                    : target;
-            }
+            // Anneau FIXE sur le point de sortie (ne bouge pas quand le joueur se déplace).
+            if (_hasExitPoint) _root.position = _exitPoint;
 
             // Flèche : va-et-vient vertical + billboard (face caméra, pointe vers le bas/l'anneau).
             float bob = Mathf.Sin(Time.time * bobSpeed) * bobAmplitude;
@@ -113,14 +115,20 @@ namespace VaroniaBackOffice
         {
             var shader = Shader.Find("Sprites/Default");
 
+            // Même layer que la boundary (le layer n'est pas hérité par les enfants → à poser sur chaque GO),
+            // pour être rendu par les mêmes caméras/culling masks que le grillage.
+            int layer = AdvBoundarySettings.Layer;
+
             var rootGo = new GameObject("BoundaryReturnIndicator");
             rootGo.hideFlags = HideFlags.DontSave;
+            rootGo.layer = layer;
             DontDestroyOnLoad(rootGo);
             _root = rootGo.transform;
 
             // Anneau au sol (cercle plat sur XZ).
             var ringGo = new GameObject("Ring");
             ringGo.transform.SetParent(_root, false);
+            ringGo.layer = layer;
             _ring = ringGo.AddComponent<LineRenderer>();
             _ring.useWorldSpace     = false;
             _ring.loop              = true;
@@ -143,6 +151,7 @@ namespace VaroniaBackOffice
             // Flèche billboard (mesh plat pointant vers le bas).
             var arrowGo = new GameObject("Arrow");
             arrowGo.transform.SetParent(_root, false);
+            arrowGo.layer = layer;
             arrowGo.transform.localPosition = new Vector3(0f, arrowHeight, 0f);
             arrowGo.transform.localScale    = Vector3.one * arrowScale;
             var mf = arrowGo.AddComponent<MeshFilter>();

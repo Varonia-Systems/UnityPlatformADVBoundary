@@ -132,8 +132,9 @@ namespace VaroniaBackOffice
 
         /// <summary>
         /// Prefab d'obstacle pour la taille donnée, en tenant compte d'un éventuel override de scène.
-        /// Si la scène a un override et que le slot de cette taille est rempli, il l'emporte ;
-        /// sinon on retombe sur le prefab par défaut.
+        /// Si la scène a un override, il est AUTORITATIF : la valeur du slot fait foi, y compris vide
+        /// (slot vide = rien pour cette taille sur cette scène, pas de fallback au défaut).
+        /// Sans override pour la scène, on utilise le prefab par défaut.
         /// </summary>
         public static GameObject GetObstaclePrefab(ObstacleSize size, string sceneName)
         {
@@ -145,9 +146,7 @@ namespace VaroniaBackOffice
                 foreach (var ov in inst.sceneOverrides)
                 {
                     if (ov == null || ov.sceneName != sceneName) continue;
-                    var p = ov.Get(size);
-                    if (p != null) return p;   // slot rempli → override
-                    break;                     // scène trouvée mais slot vide → défaut
+                    return ov.Get(size);   // override autoritatif : slot vide = rien
                 }
             }
             return inst.DefaultPrefab(size);

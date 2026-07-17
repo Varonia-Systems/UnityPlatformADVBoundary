@@ -34,6 +34,9 @@ namespace VaroniaBackOffice
         [Tooltip("Une fois le joueur sorti de la boundary, le grillage (murs) reste masqué en permanence, " +
                  "pour ne pas laisser croire que la zone extérieure est interdite.")]
         [SerializeField] private bool hideWallsOnceExited = true;
+        [Tooltip("Affiche automatiquement le repère 'rentrez par ici' (anneau au sol + flèche) quand le " +
+                 "joueur est sorti. Le composant BoundaryReturnIndicator est ajouté tout seul si absent.")]
+        [SerializeField] private bool showReturnIndicator = true;
 
         [Header("Wall Shader Params")]
         [SerializeField] private float wallPulseSpeed     = 1.5f;
@@ -153,9 +156,6 @@ namespace VaroniaBackOffice
         private bool             _cameraFound;
         private AdvBoundaryDebug _debug;
 
-        // Latch : passe à true dès que le joueur est sorti au moins une fois de la boundary.
-        // Sert à masquer définitivement le grillage (voir hideWallsOnceExited).
-        private bool             _hasExited;
 
         // Instance cachée : évite un FindObjectOfType par frame dans les accesseurs statiques.
         private static AdvBoundary _instance;
@@ -214,6 +214,10 @@ namespace VaroniaBackOffice
 
         private void Start()
         {
+            // Repère 'rentrez par ici' : ajouté automatiquement s'il n'existe pas déjà (rien à câbler).
+            if (showReturnIndicator && GetComponent<BoundaryReturnIndicator>() == null)
+                gameObject.AddComponent<BoundaryReturnIndicator>();
+
             if (VaroniaSpatialLoader.Data != null)
                 Build();
             else
@@ -377,7 +381,6 @@ namespace VaroniaBackOffice
         public void Build()
         {
             Clear();
-            _hasExited = false;
 
             _boundaryLayer = AdvBoundarySettings.Layer;
             gameObject.layer = _boundaryLayer;
@@ -680,10 +683,10 @@ namespace VaroniaBackOffice
                 isOutside = false;
 #endif
 
-            // Dès qu'on est sorti une fois, on masque définitivement le grillage (si l'option est active),
-            // pour ne pas laisser penser que l'extérieur est interdit une fois qu'on y est.
-            if (isOutside) _hasExited = true;
-            bool hideWalls = hideWallsOnceExited && _hasExited;
+            // Quand on est DEHORS, on masque le grillage au lieu de le forcer ON, pour ne pas laisser
+            // croire que l'extérieur est interdit. De retour à l'intérieur, il refonctionne normalement
+            // (le grillage se lève à l'approche des bords, comme avant).
+            bool hideWalls = hideWallsOnceExited && isOutside;
 
             // ── Debug overlay ─────────────────────────────────────────────────────
             float debugMinDist = float.MaxValue;

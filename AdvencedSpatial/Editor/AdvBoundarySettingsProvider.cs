@@ -13,7 +13,10 @@ namespace VaroniaBackOffice.EditorTools
     /// </summary>
     static class AdvBoundarySettingsProvider
     {
-        const string ResourcesDir = "Packages/com.varonia.advspatial/Runtime/Resources";
+        // Asset stocké dans les Assets DU JEU (par jeu) et non dans le package : le package est référencé
+        // en file: partagé par plusieurs jeux, donc layer / prefabs / overrides de scène doivent rester
+        // propres à chaque projet (les références de prefab d'un jeu ne résolvent pas dans un autre).
+        const string ResourcesDir = "Assets/Resources";
         const string AssetPath    = ResourcesDir + "/" + AdvBoundarySettings.ResourceName + ".asset";
 
         internal static AdvBoundarySettings GetOrCreateSettings()
@@ -25,7 +28,8 @@ namespace VaroniaBackOffice.EditorTools
             if (settings == null)
             {
                 settings = ScriptableObject.CreateInstance<AdvBoundarySettings>();
-                Directory.CreateDirectory(ResourcesDir);
+                if (!AssetDatabase.IsValidFolder(ResourcesDir))
+                    AssetDatabase.CreateFolder("Assets", "Resources");
                 AssetDatabase.CreateAsset(settings, AssetPath);
                 AssetDatabase.SaveAssets();
             }
@@ -138,9 +142,9 @@ namespace VaroniaBackOffice.EditorTools
 
             // ── Overrides par scène ──
             DrawSectionCard("🗺  Scene Overrides",
-                "Remplace les prefabs d'obstacles pour une scène précise. Ex. : scène futuriste → " +
-                "obstacles futuristes ; grotte → cailloux. Un slot laissé vide retombe sur le prefab " +
-                "par défaut de cette taille.",
+                "Remplace les prefabs d'obstacles pour une scène précise (config autoritaire). Ex. : scène " +
+                "futuriste → obstacles futuristes ; grotte → cailloux. Un slot laissé vide = RIEN pour cette " +
+                "taille sur cette scène (pas de fallback au défaut).",
                 AccentGreen, () => DrawSceneOverrides(so));
 
             GUILayout.Space(10);
@@ -190,7 +194,7 @@ namespace VaroniaBackOffice.EditorTools
                 EditorGUILayout.PropertyField(smallP, new GUIContent("Small"));
                 EditorGUILayout.PropertyField(medP,   new GUIContent("Medium"));
                 EditorGUILayout.PropertyField(largeP, new GUIContent("Large"));
-                GUILayout.Label("Slot vide → prefab par défaut de cette taille.", _desc);
+                GUILayout.Label("Slot vide → rien pour cette taille sur cette scène (override prioritaire).", _desc);
 
                 EditorGUILayout.EndVertical();
                 GUILayout.Space(4);
