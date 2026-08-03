@@ -88,6 +88,10 @@ namespace VaroniaBackOffice
         [Tooltip("Vitesse de lerp du volume/pitch sonore.")]
         [SerializeField] private float soundLerpSpeed = 8.0f;
 
+        // "Beep à l'approche" : option GLOBALE lue depuis le spatial (NewSpatial.json / SpatialConfig),
+        // pas depuis l'inspecteur. false = son uniquement hors zone ; true = bip aussi à l'approche.
+        private bool _beepOnApproach;
+
         
         
         
@@ -391,6 +395,9 @@ namespace VaroniaBackOffice
                 Debug.LogWarning("[AdvBoundary] Aucune boundary trouvée.");
                 return;
             }
+
+            // Option globale lue depuis le spatial (SpatialConfig / NewSpatial.json).
+            _beepOnApproach = spatial.BeepOnApproach;
 
             for (int i = 0; i < spatial.Boundaries.Count; i++)
             {
@@ -835,19 +842,19 @@ namespace VaroniaBackOffice
 
             if (isOutside)
             {
-                // Hors zone : intensité maximale.
+                // Hors zone : intensité maximale. (Toujours actif, quelle que soit l'option d'approche.)
                 targetVolume = 1f;
                 targetPitch  = soundMaxPitch;
             }
-            else if (globalMinDist <= fullIntensityDistance)
+            else if (_beepOnApproach && globalMinDist <= fullIntensityDistance)
             {
-                // Collé au mur (mais encore dedans) : quasi plein.
+                // Collé au mur (mais encore dedans) : quasi plein. Seulement si le bip d'approche est activé.
                 targetVolume = 0.8f;
                 targetPitch  = soundMaxPitch;
             }
-            else if (globalMinDist < startDist)
+            else if (_beepOnApproach && globalMinDist < startDist)
             {
-                // Rampe progressive volume + pitch entre startDist et fullIntensityDistance.
+                // Rampe progressive volume + pitch entre startDist et fullIntensityDistance (bip d'approche).
                 float t = 1f - Mathf.Clamp01(
                     (globalMinDist - fullIntensityDistance) /
                     (startDist - fullIntensityDistance));
@@ -856,7 +863,7 @@ namespace VaroniaBackOffice
             }
             else
             {
-                // Loin de la boundary : silence.
+                // Dedans sans bip d'approche (défaut), ou loin de la boundary : silence.
                 targetVolume = 0f;
                 targetPitch  = soundBasePitch;
             }

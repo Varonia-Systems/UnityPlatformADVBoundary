@@ -122,6 +122,9 @@ namespace VaroniaBackOffice
         {
             if (_panel == null) return;
 
+            // Scale résolution live, comme l'IMGUI (early-out interne si inchangé).
+            ApplyPanelScale_UITK();
+
             bool visible = show && Camera.main != null && !IsHiddenByDeviceMode();
             var targetDisplay = visible ? DisplayStyle.Flex : DisplayStyle.None;
             if (_panel.style.display != targetDisplay)
@@ -307,8 +310,11 @@ namespace VaroniaBackOffice
         private void PositionPanel_UITK()
         {
             if (_panel == null) return;
+            // Scaling aligné sur l'IMGUI : appliqué globalement via PanelSettings.scale (contenu + marges).
+            // La largeur reste donc en unités non scalées, sinon scaleFactor serait compté deux fois.
+            ApplyPanelScale_UITK();
             float mx = margin.x, my = margin.y;
-            _panel.style.width = size.x * scaleFactor;
+            _panel.style.width = size.x;
             switch (corner)
             {
                 case DisplayCorner.TopLeft:
@@ -328,6 +334,18 @@ namespace VaroniaBackOffice
                     _panel.style.left = StyleKeyword.Auto; _panel.style.top = StyleKeyword.Auto;
                     break;
             }
+        }
+
+        // Même formule que l'IMGUI : (Screen.height / 1080) * scaleFactor, appliquée au panneau entier.
+        // PanelSettings.scale n'est honoré qu'en ConstantPixelSize (le mode utilisé ici).
+        private float _lastPanelScale = -1f;
+        private void ApplyPanelScale_UITK()
+        {
+            if (_panelSettings == null) return;
+            float scale = (Screen.height / 1080f) * scaleFactor;
+            if (Mathf.Approximately(scale, _lastPanelScale)) return;
+            _lastPanelScale = scale;
+            _panelSettings.scale = scale;
         }
 #endif // VBO_UITOOLKIT_OVERLAYS
 
