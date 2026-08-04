@@ -219,7 +219,9 @@ namespace VaroniaBackOffice
         private void Start()
         {
             // Repère 'rentrez par ici' : ajouté automatiquement s'il n'existe pas déjà (rien à câbler).
-            if (showReturnIndicator && GetComponent<BoundaryReturnIndicator>() == null)
+            // Inutile si le spatial est désactivé : il n'y aura aucune boundary à réintégrer.
+            if (showReturnIndicator && !GlobalConfig.SpatialSyncDisabled
+                && GetComponent<BoundaryReturnIndicator>() == null)
                 gameObject.AddComponent<BoundaryReturnIndicator>();
 
             if (VaroniaSpatialLoader.Data != null)
@@ -277,6 +279,9 @@ namespace VaroniaBackOffice
 
         private void Update()
         {
+            // Spatial désactivé : aucune géométrie, aucune proximité, aucun son — composant inerte.
+            if (GlobalConfig.SpatialSyncDisabled) return;
+
             UpdateWorldPoints();
             UpdateProximity();
             UpdateSound();
@@ -385,6 +390,11 @@ namespace VaroniaBackOffice
         public void Build()
         {
             Clear();
+
+            // DontUseSpatialSync : une boundary posée manuellement dans la scène ne construit rien
+            // (ni contours, ni murs, ni obstacles) et reste totalement inerte.
+            if (GlobalConfig.SpatialSyncDisabled)
+                return;
 
             _boundaryLayer = AdvBoundarySettings.Layer;
             gameObject.layer = _boundaryLayer;

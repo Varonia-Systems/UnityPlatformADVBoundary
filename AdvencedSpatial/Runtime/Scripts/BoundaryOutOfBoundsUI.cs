@@ -46,6 +46,41 @@ namespace VaroniaBackOffice
         private const string SubtitleEN = "Return to the play area immediately";
         private const string WarnEN     = "⚠  OUT OF BOUNDS  ⚠";
 
+        // DE
+        private const string TitleDE    = "STOPP !";
+        private const string SubtitleDE = "Kehren Sie sofort in den Spielbereich zurück";
+        private const string WarnDE     = "⚠  SPIELBEREICH VERLASSEN  ⚠";
+
+        // IT
+        private const string TitleIT    = "ALT !";
+        private const string SubtitleIT = "Torna immediatamente nell'area di gioco";
+        private const string WarnIT     = "⚠  FUORI DALL'AREA  ⚠";
+
+        // PT
+        private const string TitlePT    = "PARE !";
+        private const string SubtitlePT = "Regresse imediatamente à área de jogo";
+        private const string WarnPT     = "⚠  FORA DA ÁREA  ⚠";
+
+        // RU
+        private const string TitleRU    = "СТОП !";
+        private const string SubtitleRU = "Немедленно вернитесь в игровую зону";
+        private const string WarnRU     = "⚠  ВНЕ ИГРОВОЙ ЗОНЫ  ⚠";
+
+        // ZH
+        private const string TitleZH    = "停止 !";
+        private const string SubtitleZH = "请立即返回游戏区域";
+        private const string WarnZH     = "⚠  已离开游戏区域  ⚠";
+
+        // JA
+        private const string TitleJA    = "停止 !";
+        private const string SubtitleJA = "直ちにプレイエリアに戻ってください";
+        private const string WarnJA     = "⚠  エリア外です  ⚠";
+
+        // AR
+        private const string TitleAR    = "! توقف";
+        private const string SubtitleAR = "عد إلى منطقة اللعب فورًا";
+        private const string WarnAR     = "⚠  خارج منطقة اللعب  ⚠";
+
         // ─── Colors ───────────────────────────────────────────────────────────────
 
         static readonly Color ColBlurBg     = new Color(0.00f, 0.00f, 0.05f, 0.87f); // bleu nuit semi-transparent
@@ -177,6 +212,27 @@ namespace VaroniaBackOffice
                 case "ES":
                     _currentLang = "ES";
                     break;
+                case "DE":
+                    _currentLang = "DE";
+                    break;
+                case "IT":
+                    _currentLang = "IT";
+                    break;
+                case "PT":
+                    _currentLang = "PT";
+                    break;
+                case "RU":
+                    _currentLang = "RU";
+                    break;
+                case "ZH":
+                    _currentLang = "ZH";
+                    break;
+                case "JA":
+                    _currentLang = "JA";
+                    break;
+                case "AR":
+                    _currentLang = "AR";
+                    break;
                 default:
                     _currentLang = "EN";
                     break;
@@ -193,6 +249,20 @@ namespace VaroniaBackOffice
                     return (TitleFR, SubtitleFR, WarnFR);
                 case "ES":
                     return (TitleES, SubtitleES, WarnES);
+                case "DE":
+                    return (TitleDE, SubtitleDE, WarnDE);
+                case "IT":
+                    return (TitleIT, SubtitleIT, WarnIT);
+                case "PT":
+                    return (TitlePT, SubtitlePT, WarnPT);
+                case "RU":
+                    return (TitleRU, SubtitleRU, WarnRU);
+                case "ZH":
+                    return (TitleZH, SubtitleZH, WarnZH);
+                case "JA":
+                    return (TitleJA, SubtitleJA, WarnJA);
+                case "AR":
+                    return (TitleAR, SubtitleAR, WarnAR);
                 default:
                     return (TitleEN, SubtitleEN, WarnEN);
             }
